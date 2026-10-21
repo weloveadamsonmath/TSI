@@ -279,6 +279,7 @@ p { margin: 0 0 .75rem; }
 .work .c { text-align: right; }
 .work .eqs { text-align: center; padding-inline: .3em; }
 .work .opr { color: var(--blue); font-weight: 700; }
+.work .eqs.flip { color: var(--bad); font-weight: 800; }
 .work .opr:not(:empty) { background: var(--blue-soft); border-radius: 6px; padding-inline: .25em; }
 .work .divr .de { color: var(--blue); font-weight: 700; }
 .work .rule { grid-column: 1 / -1; border-top: 2px solid var(--ink-soft); margin: .05em 0 .1em; }
@@ -532,6 +533,7 @@ function cells(m, keys, o, mode, div) {
   return out;
 }
 const plainSide = cs => cs.filter(Boolean).join(' ') || '0';
+const FLIPREL = { '<': '>', '>': '<', '≤': '≥', '≥': '≤', '=': '=' };
 function balParts(w) {
   const o = { dec: !!w.dec, over: !!w.over, money: !!w.money }, L = side(w.L), R = side(w.R);
   let L2, R2, op = null, mode;
@@ -539,7 +541,8 @@ function balParts(w) {
   else if (w.mul !== undefined) { const k = F_(w.mul); L2 = mapOp(L, v => fMul(v, k)); R2 = mapOp(R, v => fMul(v, k)); mode = 'mul'; }
   else { op = side([w.op]); L2 = mapAdd(L, op); R2 = mapAdd(R, op); mode = 'op'; }
   const kL = keysOf([L, op || new Map(), L2], w.keysL), kR = keysOf([R, op || new Map(), R2], w.keysR);
-  return { o, L, R, L2, R2, op, mode, kL, kR };
+  const rel = w.rel || '=', flip = rel !== '=' && ((mode === 'div' && F_(w.div).n < 0) || (mode === 'mul' && F_(w.mul).n < 0)), rel2 = flip ? FLIPREL[rel] : rel;
+  return { o, L, R, L2, R2, op, mode, kL, kR, rel, rel2, flip };
 }
 function bfProd(p, q) {
   if (p === 'x') return q === '1' ? 'x' : `${q}x`;
@@ -660,7 +663,7 @@ function vmulMaybe(a, b) { // skip the layout for one-digit facts and powers of 
 function workEqs(w) {
   if (w.t === 'ladder' || w.t === 'vmul' || w.t === 'ldiv' || w.t === 'foil') return null;
   if (w.t === 'bf') { if (w.noProd) return null; const B = bfParts(w); return { from: `{${w.a}/${w.b}} = {${w.c}/${w.d}}`, to: `${B.first} = ${B.second}` }; }
-  if (w.t === 'bal') { const B = balParts(w); return { from: `${plainSide(cells(B.L, B.kL, B.o))} = ${plainSide(cells(B.R, B.kR, B.o))}`, to: `${plainSide(cells(B.L2, B.kL, B.o))} = ${plainSide(cells(B.R2, B.kR, B.o))}` }; }
+  if (w.t === 'bal') { const B = balParts(w); return { from: `${plainSide(cells(B.L, B.kL, B.o))} ${B.rel} ${plainSide(cells(B.R, B.kR, B.o))}`, to: `${plainSide(cells(B.L2, B.kL, B.o))} ${B.rel2} ${plainSide(cells(B.R2, B.kR, B.o))}` }; }
   if (w.t === 'dist') { const D = distParts(w); return { from: `${D.lhsPlain} = ${D.rPlain}`, to: `${plainSide(cells(D.L2, D.kL, D.o))} = ${D.rPlain}` }; }
   if (w.t === 'stack') { const S = stackParts(w); return { from: S.rows.slice(0, 2).map(r => `${plainSide(r[0])} = ${plainSide(r[1])}`), to: `${plainSide(S.res[0])} = ${plainSide(S.res[1])}` }; }
   return null;
@@ -678,9 +681,9 @@ function stackParts(w) {
   return { o, kL, kR, rows: [[cells(L1, kL, o), cells(R1, kR, o)], [cells(L2, kL, o), cells(R2, kR, o)]], res: [cells(L3, kL, o), cells(R3, kR, o)] };
 }
 function cellHTML(t) { if (!t) return ''; const m = /^([+-]) (.*)$/.exec(t); return m ? `${m[1] === '-' ? '−' : '+'} ${mathInner(m[2])}` : mathInner(t); }
-function gridRow(lc, rc, eq, cls) {
-  const c = (t, extra) => `<span class="c${extra ? ' ' + extra : ''}">${cellHTML(t)}</span>`;
-  return lc.map(t => c(t, cls)).join('') + `<span class="eqs">${eq ? '=' : ''}</span>` + rc.map(t => c(t, cls)).join('');
+function gridRow(lc, rc, eq, cls, flip) { // eq: true for '=', or a relation symbol such as '<'
+  const c = (t, extra) => `<span class="c${extra ? ' ' + extra : ''}">${cellHTML(t)}</span>`, sym = eq === true ? '=' : (eq || '');
+  return lc.map(t => c(t, cls)).join('') + `<span class="eqs${flip ? ' flip' : ''}">${esc(sym)}</span>` + rc.map(t => c(t, cls)).join('');
 }
 function renderWork(w) {
   if (w.t === 'ldiv') return renderLdiv(w);
@@ -736,14 +739,14 @@ function renderWork(w) {
     const B = balParts(w), cols = `repeat(${B.kL.length}, auto) auto repeat(${B.kR.length}, auto)`;
     let h = `<div class="work m" style="grid-template-columns:${cols}">`;
     if (B.mode === 'div') {
-      h += gridRow(cells(B.L, B.kL, B.o, 'div', F_(w.div)), cells(B.R, B.kR, B.o, 'div', F_(w.div)), true, 'divr');
+      h += gridRow(cells(B.L, B.kL, B.o, 'div', F_(w.div)), cells(B.R, B.kR, B.o, 'div', F_(w.div)), B.rel2, 'divr', B.flip);
     } else {
-      h += gridRow(cells(B.L, B.kL, B.o), cells(B.R, B.kR, B.o), true);
+      h += gridRow(cells(B.L, B.kL, B.o), cells(B.R, B.kR, B.o), B.rel);
       if (B.mode === 'op') h += gridRow(cells(B.op, B.kL, B.o, 'op'), cells(B.op, B.kR, B.o, 'op'), false, 'opr');
       else { const mk = n => Array.from({ length: n }, (_, i) => i === n - 1 ? `* ${ns(w.mul)}` : ''); h += gridRow(mk(B.kL.length), mk(B.kR.length), false, 'opr'); }
       h += '<span class="rule"></span>';
     }
-    h += gridRow(cells(B.L2, B.kL, B.o), cells(B.R2, B.kR, B.o), true, 'res');
+    h += gridRow(cells(B.L2, B.kL, B.o), cells(B.R2, B.kR, B.o), B.rel2, 'res', B.flip);
     return h + '</div>';
   }
   if (w.t === 'dist') {
@@ -1718,7 +1721,7 @@ function ex3() {
 }
 
 function ex4() { // equivalent / NOT equivalent: plug in a number
-  const a = pick([1, 2, 3]), c = rint(3, 6), s = chance(0.5) ? 1 : -1; // (a x - s a c)(x + s c) = a(x^2 - c^2)
+  let a, c, s; do { a = pick([1, 2, 3]); c = rint(3, 6); s = chance(0.5) ? 1 : -1; } while (a === 3 && c === 4 && s === 1); // (a x - s a c)(x + s c) = a(x^2 - c^2); never College Board's sample (3x - 12)(x + 4)
   const wrap = body => a === 1 ? body : `${a}(${body})`, xb = lin([[1, 'x'], [s * c, '']]);
   const orig = `(${lin([[a, 'x'], [-s * a * c, '']])})(${xb})`;
   const EQ = [wrap(`x^2 - ${c * c}`), lin([[a, 'x^2'], [-a * c * c, '']]), `${coefAbs(a, 'x')}(${xb}) ${s > 0 ? '-' : '+'} ${a * c}(${xb})`, a === 1 ? `(x - ${c})(x + ${c})` : `${a}(x - ${c})(x + ${c})`];
@@ -2256,7 +2259,7 @@ function ex2Greater() {
 function signTip(B, C) {
   if (C > 0 && B > 0) return 'They multiply to a positive and add to a positive, so both are positive.';
   if (C > 0) return 'They multiply to a positive but add to a negative, so both are negative.';
-  return `They multiply to a negative, so one is positive and one is negative. The bigger one (ignoring signs) is ${B > 0 ? 'positive' : 'negative'}, because they add to ${ns(B)}.`;
+  return `They multiply to a negative, so one is positive and one is negative. The bigger one (ignoring signs) is ${B > 0 ? 'positive' : 'negative'}, because they add to ${N(B)}.`;
 }
 function ex6() {
   let g, p, q;
@@ -2468,6 +2471,263 @@ function s4aRev() {
     spec: { type: 'solve', eq: `n(${A} - n) = ${F} + ${c}n`, v: 'n' } };
 }
 
+/* ===================================================================
+   NEW SKILLS (Oct 2026): inequalities, solving by factoring, percent growth & decay
+   =================================================================== */
+const STRICTSW = { '<': '≤', '>': '≥', '≤': '<', '≥': '>' };
+const isStrict = r => r === '<' || r === '>';
+const upward = r => r === '>' || r === '≥';
+function divSay(A, rel) {
+  if (A < 0) return `Divide both sides by ${N(A)}. You divided by a <b>negative</b>, so flip the sign: \`${rel}\` becomes \`${FLIPREL[rel]}\`.`;
+  return `Divide both sides by ${A}. That's a positive number, so the sign stays \`${rel}\`.`;
+}
+function plugLin(a, b, t, constFirst) { // a(t) + b written the way the inequality was written
+  if (!constFirst) return linSub(a, b, t);
+  return `${ns(b)} ${a < 0 ? '-' : '+'} ${coefSub(Math.abs(a), t)}`;
+}
+
+function s1eSolve() {
+  const rel = pick(['<', '>', '≤', '≥']);
+  let ineq, steps = [], A, x0, check, movedB = null;
+  if (chance(0.6)) { // ax + b rel c
+    const a = pick([2, 3, 4, 5, 6, -2, -3, -4, -5, -6]), b = nz(-12, 12); x0 = nz(-8, 9);
+    const c = a * x0 + b, constFirst = a < 0 && chance(0.5), L = constFirst ? [[b, ''], [a, 'x']] : [[a, 'x'], [b, '']];
+    ineq = `${lin(L)} ${rel} ${c}`; A = a;
+    steps.push([`${b > 0 ? 'Subtract' : 'Add'} ${Math.abs(b)} ${b > 0 ? 'from' : 'to'} both sides. Adding or subtracting never flips the sign.`, { t: 'bal', L, R: [[c, '']], op: [-b, ''], rel, keysL: constFirst ? ['c', 'x'] : undefined }]);
+    steps.push([divSay(a, rel), { t: 'bal', L: [[a, 'x']], R: [[c - b, '']], div: a, rel }]);
+    const relF = a < 0 ? FLIPREL[rel] : rel, t = x0 + (upward(relF) ? 1 : -1) * rint(1, 3), v = a * t + b;
+    check = [`Check a number that should work, like x = ${N(t)}: the left side is ${N(v)}, and \`${ns(v)} ${rel} ${ns(c)}\` is true ✓`, `${plugLin(a, b, t, constFirst)} = ${ns(v)}`];
+    if (isInt((c + b) / a) && (c + b) / a !== x0) movedB = { v: (c + b) / a, why: `To undo the \`${pm(b)}\`, ${b > 0 ? 'subtract' : 'add'} ${Math.abs(b)} on both sides.` };
+  } else { // ax + b rel cx + d
+    let a, c; do { a = nz(-5, 7); c = nz(-5, 7); } while (a === c || Math.abs(a - c) > 8);
+    const b = nz(-12, 12); x0 = nz(-8, 9); A = a - c; const d = A * x0 + b;
+    ineq = `${lin([[a, 'x'], [b, '']])} ${rel} ${lin([[c, 'x'], [d, '']])}`;
+    steps.push([`${c > 0 ? 'Subtract' : 'Add'} \`${lin([[Math.abs(c), 'x']])}\` ${c > 0 ? 'from' : 'to'} both sides to get the x-terms together.`, { t: 'bal', L: [[a, 'x'], [b, '']], R: [[c, 'x'], [d, '']], op: [-c, 'x'], rel }],
+      [`${b > 0 ? 'Subtract' : 'Add'} ${Math.abs(b)} ${b > 0 ? 'from' : 'to'} both sides.`, { t: 'bal', L: [[A, 'x'], [b, '']], R: [[d, '']], op: [-b, ''], rel }]);
+    if (A !== 1) steps.push([divSay(A, rel), { t: 'bal', L: [[A, 'x']], R: [[d - b, '']], div: A, rel }]);
+    const relF = A < 0 ? FLIPREL[rel] : rel, t = x0 + (upward(relF) ? 1 : -1) * rint(1, 3), lv = a * t + b, rv = c * t + d;
+    check = [`Check a number that should work, like x = ${N(t)}: the left side is ${N(lv)} and the right side is ${N(rv)}. \`${ns(lv)} ${rel} ${ns(rv)}\` is true ✓`, `${linSub(a, b, t)} = ${ns(lv)}`];
+    if (isInt((d + b) / A) && (d + b) / A !== x0) movedB = { v: (d + b) / A, why: `When ${N(b)} moves to the other side, it changes sign. ${b > 0 ? 'Subtract' : 'Add'} ${Math.abs(b)} on both sides.` };
+  }
+  const relF = A < 0 ? FLIPREL[rel] : rel, X = (r, v) => `x ${r} ${ns(v)}`;
+  steps.push(check);
+  steps.push([`So the answer is \`${X(relF, x0)}\`.${A < 0 ? ' The sign flipped because you divided by a negative.' : ''}`, null]);
+  const trap = A < 0
+    ? { m: X(rel, x0), why: `You divided by ${N(A)}, a negative number. That flips the sign: \`${rel}\` becomes \`${relF}\`.` }
+    : { m: X(FLIPREL[rel], x0), why: `Only flip the sign when you multiply or divide by a <b>negative</b>. ${A === 1 ? 'This problem never does that' : `Here you divide by ${A}, which is positive`}${x0 < 0 ? ', and a negative number on the other side doesn’t flip anything' : ''}, so the sign stays \`${rel}\`.` };
+  const others = shuffle([
+    { m: X(STRICTSW[relF], x0), why: isStrict(rel) ? `The original sign \`${rel}\` does not include “equal to,” so the answer can't either. Use \`${relF}\`, not \`${STRICTSW[relF]}\`.` : `The original sign \`${rel}\` includes “equal to,” so the answer keeps it: \`${relF}\`.` },
+    x0 !== 0 ? { m: X(relF, -x0), why: 'Sign slip on the number. Plug a value back into the original to check.' } : null,
+    movedB ? { m: X(relF, movedB.v), why: movedB.why } : null]);
+  const fb = numFb(x0, v => ({ m: X(relF, v), why: `Check the boundary: at x = ${N(x0)} the two sides come out equal, so ${N(x0)} is where the answer starts.` }));
+  return { q: 'Which of the following is the solution of the inequality?', big: [ineq], choices: mc({ m: X(relF, x0) }, [trap, ...others], fb),
+    hint: 'Solve it like an equation. If you multiply or divide both sides by a negative number, flip the inequality sign.', steps,
+    spec: { type: 'ineq', ineq, v: 'x' } };
+}
+
+function s1ePick() {
+  const rel = pick(['<', '>', '≤', '≥']), a = pick([2, 3, 4, 5, -2, -3, -4, -5, -2, -3]), b = nz(-12, 12), x0 = nz(-6, 7), c = a * x0 + b;
+  const relF = a < 0 ? FLIPREL[rel] : rel, d = upward(relF) ? 1 : -1, ineq = `${lin([[a, 'x'], [b, '']])} ${rel} ${c}`;
+  const ans = !isStrict(rel) && chance(0.35) ? x0 : x0 + d * rint(1, 4);
+  const wrong = isStrict(rel) ? [x0, x0 - d * rint(1, 3), x0 - d * rint(4, 7)] : [x0 - d, x0 - d * rint(2, 4), x0 - d * rint(5, 8)];
+  const val = v => a * v + b, why = v => v === x0 ? `At x = ${N(v)} the left side is exactly ${N(c)}. The sign \`${rel}\` does not include “equal to,” so ${N(v)} doesn't count.`
+    : `Plug it in: \`${linSub(a, b, v)} = ${ns(val(v))}\`, and \`${ns(val(v))} ${rel} ${ns(c)}\` is false.${a < 0 ? ' Did you forget to flip the sign when you divided by a negative?' : ''}`;
+  const cands = wrong.map(v => ({ m: ns(v), why: why(v) }));
+  const fb = i => { const v = x0 - d * (i + 2); return { m: ns(v), why: why(v) }; };
+  const steps = [[`Solve it like an equation. ${b > 0 ? 'Subtract' : 'Add'} ${Math.abs(b)} ${b > 0 ? 'from' : 'to'} both sides.`, { t: 'bal', L: [[a, 'x'], [b, '']], R: [[c, '']], op: [-b, ''], rel }],
+    [divSay(a, rel), { t: 'bal', L: [[a, 'x']], R: [[c - b, '']], div: a, rel }],
+    [ans === x0 ? `The answer \`x ${relF} ${ns(x0)}\` includes ${N(x0)} itself, because of the “or equal to.”` : `Every answer has to be ${upward(relF) ? 'bigger' : 'smaller'} than ${N(x0)}${isStrict(relF) ? '' : ' (or equal to it)'}. Only ${N(ans)} is.`, null],
+    [`Check ${N(ans)} in the original: the left side is ${N(val(ans))}, and \`${ns(val(ans))} ${rel} ${ns(c)}\` is true ✓`, `${linSub(a, b, ans)} = ${ns(val(ans))}`],
+    ['Test-day shortcut: skip the algebra and plug each choice into the original. Only one makes it true.', null]];
+  return { q: 'Which value of x is a solution of the inequality?', big: [ineq], choices: mc({ m: ns(ans) }, cands, fb),
+    hint: 'Plug each choice into the left side and see if the statement is true. Or solve it first: dividing by a negative flips the sign.', steps,
+    spec: { type: 'ineqPick', ineq, v: 'x' } };
+}
+
+const INEQ_MAX = [
+  (F, c, D) => [`Entry to the fair costs $${F}, and each ride ticket costs $${c}. Ana has $${D} to spend. What is the greatest number of ride tickets she can buy?`, 'ride tickets', 'entry fee', 'tickets'],
+  (F, c, D) => [`A gym charges a $${F} sign-up fee plus $${c} per class. Mia can spend at most $${D}. What is the greatest number of classes she can take?`, 'classes', 'sign-up fee', 'classes'],
+  (F, c, D) => [`A phone plan costs $${F} a month plus $${c} for each gigabyte of data. Leo wants his bill to be at most $${D}. What is the greatest number of whole gigabytes he can use?`, 'gigabytes', 'monthly charge', 'gigabytes'],
+  (F, c, D) => [`A taxi charges $${F} to start plus $${c} for each mile. Jay has $${D}. What is the greatest number of whole miles he can ride?`, 'miles', 'starting charge', 'miles']];
+const INEQ_MIN = [
+  (F, c, T) => [`A club has already raised $${F}. It earns $${c} for each car it washes, and it needs at least $${T}. What is the least number of cars it must wash?`, 'cars', 'already raised', 'cars'],
+  (F, c, T) => [`Sam has saved $${F}. He earns $${c} for each hour he works, and he wants at least $${T} for a new phone. What is the least number of whole hours he must work?`, 'hours', 'already saved', 'hours'],
+  (F, c, T) => [`A class has $${F} saved for a field trip that costs $${T}. It sells cookies for $${c} each. What is the least number of cookies it must sell to have at least $${T}?`, 'cookies', 'already saved', 'cookies']];
+function s1eWord() {
+  const c = pick([2, 4, 5]), k = rint(4, 12), r = rint(1, c - 1), hi = chance(0.6); let F; do { F = rint(5, 30); } while (F === c);
+  if (hi) {
+    const D = F + c * k + r, [q, unit, fee] = pick(INEQ_MAX)(F, c, D), lim = (D - F) / c;
+    const C = [{ v: k + 1, why: `Rounding up goes over budget: ${k + 1} ${unit} cost $${F} + $${c * (k + 1)} = $${F + c * (k + 1)}, more than $${D}. Round DOWN.` },
+      { v: Math.floor(D / c), why: `Don't forget the $${F} ${fee}. Subtract it first, then divide by ${c}.` },
+      { v: Math.floor((D + F) / c), why: `The $${F} ${fee} gets subtracted from $${D}, not added.` },
+      { v: k - 1, why: `You can afford one more: ${k} ${unit} cost $${F + c * k}, which is still at most $${D}.` }].map(o => Object.assign(o, { m: ns(o.v) }));
+    return { q, big: [], choices: mc({ m: ns(k) }, uniqNum(C, k), numFb(k, v => v > 0 ? { m: ns(v), why: `Check it: ${ns(v)} ${unit} cost $${F + c * v}.` } : null)),
+      hint: `Write an inequality: $${F} + $${c} × (number of ${unit}) ≤ $${D}. Solve it, then round DOWN, because you can't go over.`,
+      steps: [[`Call the number of ${unit} n. The $${F} plus $${c} for each one has to be at most (≤) $${D}.`, `${F} + ${c}n ≤ ${D}`],
+        [`Subtract ${F} from both sides.`, { t: 'bal', L: [[F, ''], [c, 'n']], R: [[D, '']], op: [-F, ''], rel: '≤', keysL: ['c', 'n'] }],
+        [`Divide both sides by ${c}. It's positive, so the sign stays.`, { t: 'bal', L: [[c, 'n']], R: [[D - F, '']], div: c, rel: '≤', dec: true }],
+        [`n has to be a whole number that is at most ${ns(lim)}. Round DOWN: the answer is ${k}.`, null],
+        [`Check: ${k} ${unit} cost $${F + c * k}, which fits. ${k + 1} would cost $${F + c * (k + 1)}, too much.`, `${F} + ${c} * ${k} = ${F + c * k}`]],
+      spec: { type: 'num', fn: 'maxItems', p: { F, c, D } } };
+  }
+  const T = F + c * k - r, [q, unit, have] = pick(INEQ_MIN)(F, c, T), lim = (T - F) / c;
+  const C = [{ v: k - 1, why: `Rounding down falls short: ${k - 1} ${unit} only bring the total to $${F + c * (k - 1)}, less than $${T}. Round UP.` },
+    { v: Math.ceil(T / c), why: `Don't forget the $${F} ${have}. Subtract it from $${T} first.` },
+    { v: Math.ceil((T + F) / c), why: `The $${F} ${have} counts toward the goal. Subtract it, don't add it.` },
+    { v: k + 1, why: `${k} is already enough: $${F} + $${c * k} = $${F + c * k}, which is at least $${T}.` }].map(o => Object.assign(o, { m: ns(o.v) }));
+  return { q, big: [], choices: mc({ m: ns(k) }, uniqNum(C, k), numFb(k, v => v > 0 ? { m: ns(v), why: `Check it: $${F} + $${c} × ${ns(v)} = $${F + c * v}.` } : null)),
+    hint: `Write an inequality: $${F} + $${c} × (number of ${unit}) ≥ $${T}. Solve it, then round UP, because you need at least that much.`,
+    steps: [[`Call the number of ${unit} n. The $${F} plus $${c} for each one has to be at least (≥) $${T}.`, `${F} + ${c}n ≥ ${T}`],
+      [`Subtract ${F} from both sides.`, { t: 'bal', L: [[F, ''], [c, 'n']], R: [[T, '']], op: [-F, ''], rel: '≥', keysL: ['c', 'n'] }],
+      [`Divide both sides by ${c}. It's positive, so the sign stays.`, { t: 'bal', L: [[c, 'n']], R: [[T - F, '']], div: c, rel: '≥', dec: true }],
+      [`n has to be a whole number that is at least ${ns(lim)}. Round UP: the answer is ${k}.`, null],
+      [`Check: ${k} ${unit} bring in $${c * k}, for a total of $${F + c * k}, which is enough. ${k - 1} would only reach $${F + c * (k - 1)}.`, `${F} + ${c} * ${k} = ${F + c * k}`]],
+    spec: { type: 'num', fn: 'minItems', p: { F, c, T } } };
+}
+const s1e = () => { const r = Math.random(); return r < 0.5 ? s1eSolve() : r < 0.75 ? s1ePick() : s1eWord(); };
+
+/* ---------- solve a quadratic by factoring ---------- */
+function rootsTxt(vals) {
+  const v = [...new Set(vals)].sort((a, b) => a - b);
+  return v.length === 1 ? `\`x = ${ns(v[0])}\` only` : `\`x = ${ns(v[0])}\` and \`x = ${ns(v[1])}\``;
+}
+function ex7() {
+  const r0 = Math.random();
+  let kind = r0 < 0.34 ? 'basic' : r0 < 0.54 ? 'move' : r0 < 0.69 ? 'zero' : r0 < 0.84 ? 'diff' : 'gcf';
+  let p, q, g = 1;
+  if (kind === 'zero') { p = 0; q = nz(-9, 9); }
+  else if (kind === 'diff') { q = rint(2, 9); p = -q; }
+  else { do { p = nz(-9, 9); q = nz(-9, 9); } while (p === q || p + q === 0 || Math.abs(p * q) > 48); if (kind === 'gcf') g = pick([2, 3, 5]); }
+  const B = p + q, C = p * q, roots = [-p, -q], tri = lin([[1, 'x^2'], [B, 'x'], [C, '']]);
+  const isRoot = r => r * r + B * r + C === 0, fac = kind === 'zero' ? `x(${binom(1, q, 'x')})` : `(${binom(1, p, 'x')})(${binom(1, q, 'x')})`;
+  let eq, K = 0;
+  if (kind === 'move') { K = -C; eq = `${lin([[1, 'x^2'], [B, 'x']])} = ${K}`; }
+  else if (kind === 'gcf') eq = `${lin([[g, 'x^2'], [g * B, 'x'], [g * C, '']])} = 0`;
+  else eq = `${tri} = 0`;
+  const steps = [];
+  if (kind === 'move') steps.push([`Get 0 on one side first: ${K > 0 ? 'subtract' : 'add'} ${Math.abs(K)} ${K > 0 ? 'from' : 'to'} both sides. Setting factors equal to 0 only works when the other side is 0.`, { t: 'bal', L: [[1, 'x^2'], [B, 'x']], R: [[K, '']], op: [-K, ''] }]);
+  if (kind === 'gcf') steps.push([`Every term shares a factor of ${g}. Divide both sides by ${g} to make the numbers smaller.`, { t: 'bal', L: [[g, 'x^2'], [g * B, 'x'], [g * C, '']], R: [[0, '']], div: g }]);
+  if (kind === 'zero') steps.push(['Both terms have an x. Factor it out.', `${tri} = ${fac}`]);
+  else if (kind === 'diff') steps.push([`This is a difference of squares: \`x^2 - ${q * q}\` is \`x^2 - ${q}^2\`. It factors as \`(x - ${q})(x + ${q})\`.`, `${tri} = ${fac}`]);
+  else steps.push([`Find two numbers that multiply to ${N(C)} and add to ${N(B)}. ${signTip(B, C)}`, null],
+    [`${N(p)} and ${N(q)} work. They multiply to ${N(C)}…`, `(${ns(p)})(${ns(q)}) = ${ns(C)}`],
+    [`…and they add to ${N(B)}.`, `${ns(p)} ${pm(q)} = ${ns(B)}`],
+    [`So \`${tri} = ${fac}\`. FOIL it back to check.`, { t: 'foil', a: 1, b: p, c: 1, d: q }]);
+  steps.push([`So the equation is \`${fac} = 0\`. A product is 0 only when one of its factors is 0, so set <b>each</b> factor equal to 0. Each answer ends up with the opposite sign of the number in its factor.`, null]);
+  const solveFactor = r => kind === 'zero' && r === 0 ? ['The first factor is just x, so `x = 0`.', null]
+    : [`\`${binom(1, -r, 'x')} = 0\`: ${-r > 0 ? 'subtract' : 'add'} ${Math.abs(r)} ${-r > 0 ? 'from' : 'to'} both sides.`, { t: 'bal', L: [[1, 'x'], [-r, '']], R: [[0, '']], op: [r, ''] }];
+  const plug = r => `(${ns(r)})^2 ${B ? `${B > 0 ? '+' : '-'} ${coefSub(Math.abs(B), r)} ` : ''}${C ? pm(C) + ' ' : ''}= ${[r * r, B * r, C].filter((v, i) => i === 0 || v !== 0).map((v, i) => i ? pm(v) : ns(v)).join(' ')} = 0`;
+  const single = chance(0.3) && kind !== 'zero';
+  if (single) { // "which is a solution": the asked root is solved last
+    const ans = pick(roots), other = roots.find(r => r !== ans) ?? ans;
+    if (other !== ans) steps.push(solveFactor(other));
+    steps.push(solveFactor(ans), [`Check x = ${N(ans)} in \`${tri} = 0\`:`, plug(ans)]);
+    const cands = (kind === 'diff' ? [[q * q, `x times itself is ${q * q}, so x is ${q} or ${-q}, not ${q * q}.`], [q * q / 2, `\`x^2\` means x times x, not x times 2. Find the number whose square is ${q * q}.`], [q + 1, `\`${q + 1}^2 = ${(q + 1) * (q + 1)}\`, not ${q * q}.`], [-(q - 1), `\`(${-(q - 1)})^2 = ${(q - 1) * (q - 1)}\`, not ${q * q}.`]] : [[-ans, `The sign is flipped. Set the factor equal to 0: \`${binom(1, -ans, 'x')} = 0\` gives x = ${N(ans)}.`],
+      [-other, `\`${binom(1, -other, 'x')} = 0\` gives x = ${N(other)}, not ${N(-other)}. The solution has the opposite sign of the number in the factor.`],
+      [C, `${N(C)} is what the two numbers multiply to. Plug it in: it doesn't make the equation 0.`],
+      [B, `${N(B)} is what the two numbers add to. Plug it in: it doesn't make the equation 0.`]])
+      .filter(([v]) => !isRoot(v)).map(([v, why]) => ({ m: ns(v), why }));
+    return { q: 'Which of the following is a solution of the equation?', big: [eq], choices: mc({ m: ns(ans) }, cands, numFb(ans, v => isRoot(v) ? null : { m: ns(v), why: 'Plug it in: the left side does not come out to 0.' })),
+      hint: 'Factor it and set each factor equal to 0. Or plug each choice in and look for the one that makes it 0.', steps, spec: { type: 'solve', eq, v: 'x' } };
+  }
+  roots.slice().sort((a, b) => a - b).forEach(r => steps.push(solveFactor(r)));
+  const lo = Math.min(...roots), hi = Math.max(...roots), ans = rootsTxt(roots);
+  if (kind !== 'zero' && kind !== 'diff') steps.push([`Check x = ${N(lo)}:`, plug(lo)]);
+  steps.push([`The solutions are ${ans.replace(' only', '')}.`, null]);
+  const S = (vals, why) => ({ t: rootsTxt(vals), why }), cands = [];
+  if (kind === 'zero') cands.push(S([-q], 'Don’t divide both sides by x. That throws away the solution x = 0. Factor out the x instead.'),
+    S([0, q], `The sign flips: \`${binom(1, q, 'x')} = 0\` gives x = ${N(-q)}.`), S([q], `Two problems: the sign flips, and x = 0 is also a solution.`));
+  else if (kind === 'diff') cands.push(S([q], `Don’t forget the negative: \`(${-q})^2\` is also ${q * q}. There are two solutions.`),
+    S([-q * q, q * q], `x times itself is ${q * q}, so x is ${q} or ${-q}, not ${q * q}.`), S([-q], `\`${q}^2\` is also ${q * q}. There are two solutions.`));
+  else {
+    cands.push(S([p, q], `Those are the numbers in the parentheses. Set each factor equal to 0: \`${binom(1, p, 'x')} = 0\` gives x = ${N(-p)}, the opposite sign.`));
+    if (kind === 'move') { const w = [K, K - B]; if (w[0] !== w[1] && !(w.includes(-p) && w.includes(-q))) cands.push(S(w, `Setting each factor equal to ${K} doesn't work. Only 0 has that rule: move the ${Math.abs(K)} first so one side is 0.`)); }
+    const other = [];
+    for (let r = -Math.abs(C); r <= Math.abs(C); r++) { if (r === 0 || C % r !== 0) continue; const s = C / r; if (r < s && r + s !== B && r + s !== -B) other.push([r, s]); }
+    if (other.length) { const [r, s] = pick(other); cands.push(S([-r, -s], `${N(r)} and ${N(s)} multiply to ${N(C)}, but they add to ${N(r + s)}, not ${N(B)}.`)); }
+    cands.push(S([-p, q], 'One sign is off. Each solution has the opposite sign of the number in its factor.'));
+  }
+  const fb = i => { const v = [lo - (i + 1), hi + (i % 3)]; return v[0] === v[1] ? null : S(v, 'Plug each one in. Both have to make the equation true.'); };
+  return { q: 'What are the solutions of the equation?', big: [eq], choices: mc({ t: ans }, cands, fb),
+    hint: kind === 'move' ? 'Move everything to one side so the other side is 0. Then factor and set each factor equal to 0.' : 'Factor it. Then set each factor equal to 0 and solve each one.', steps,
+    spec: { type: 'roots', eq } };
+}
+
+/* ---------- percent growth & decay ---------- */
+const GROW_CTX = [['A savings account starts with ${P} and earns {r}% interest each year.', 'the amount in the account after t years', [400, 500, 800, 1200, 2500]],
+  ['A town has {P} people, and its population grows by {r}% each year.', 'the population after t years', [1500, 2400, 4800, 12000]],
+  ['A comic book is worth ${P}, and its value goes up {r}% each year.', 'its value after t years', [40, 60, 150, 250]]];
+const DECAY_CTX = [['A car is bought for ${P}, and its value drops by {r}% each year.', 'the car’s value after t years', [12000, 18000, 24000, 30000]],
+  ['A lake has {P} fish, and the number of fish goes down by {r}% each year.', 'the number of fish after t years', [600, 1500, 2400]],
+  ['A new laptop costs ${P} and loses {r}% of its value each year.', 'its value after t years', [800, 1200, 1500]]];
+function xp5Model() {
+  const up = chance(0.5), r = up ? pick([2, 3, 4, 5, 6, 8, 10, 12, 15]) : pick([5, 8, 10, 12, 15, 20, 25, 30]);
+  const ctx = pick(up ? GROW_CTX : DECAY_CTX), P = pick(ctx[2]);
+  const f = up ? 1 + r / 100 : 1 - r / 100, fs = ns(f), rd = ns(r / 100), ans = `${P}(${fs})^t`;
+  const intro = ctx[0].replace('{P}', P).replace('{r}', r);
+  const cands = up ? [{ m: `${P}(${rd})^t`, why: `${rd} is only the ${r}% that gets added. Each year you keep the 100% you had AND add ${r}%, so multiply by 1 + ${rd} = ${fs}.` },
+    { m: `${P}(${ns(1 - r / 100)})^t`, why: `${ns(1 - r / 100)} means losing ${r}% each year. Growing means multiplying by more than 1.` },
+    { m: `${P}(1 + ${rd}t)`, why: 'That adds the same amount every year. Growing by a percent multiplies by the same factor every year, so t belongs in the exponent.' },
+    r < 10 ? { m: `${P}(${ns(1 + r / 10)})^t`, why: `${r}% as a decimal is ${rd}, not ${ns(r / 10)}. The factor is ${fs}.` } : null,
+    { m: `${fs}(${P})^t`, why: `The starting amount ${P} goes in front. The factor ${fs} is what gets raised to the t power.` }]
+    : [{ m: `${P}(${rd})^t`, why: `${rd} is the part it loses. What's left each year is 100% − ${r}% = ${100 - r}%, so multiply by ${fs}.` },
+      { m: `${P}(${ns(1 + r / 100)})^t`, why: `${ns(1 + r / 100)} would mean growing ${r}% each year. Losing value means multiplying by less than 1.` },
+      { m: `${P}(1 - ${rd}t)`, why: 'That takes away the same amount every year. Losing a percent each year multiplies by the same factor every year, so t belongs in the exponent.' },
+      { m: `${fs}(${P})^t`, why: `The starting amount ${P} goes in front. The factor ${fs} is what gets raised to the t power.` }];
+  const v1 = P * f;
+  return { q: `${intro} Which expression gives ${ctx[1]}?`, big: [], choices: mc({ m: ans }, [cands[0], ...shuffle(cands.slice(1))], () => null),
+    hint: up ? `Growing ${r}% a year means you have ${100 + r}% after each year. Multiply by ${fs} once for each year.` : `Losing ${r}% a year means you keep ${100 - r}% each year. Multiply by ${fs} once for each year.`,
+    steps: [[up ? `Each year it keeps 100% and adds ${r}%. That's ${100 + r}%, or ${fs} as a decimal.` : `Each year it keeps 100% − ${r}% = ${100 - r}%, or ${fs} as a decimal.`, up ? `1 + ${rd} = ${fs}` : `1 - ${rd} = ${fs}`],
+      [`Multiply by ${fs} once for every year. t years means t times, so t is the exponent.`, ans],
+      ['Check t = 0: you should get the starting amount.', `${P}(${fs})^0 = ${P}`],
+      [`Check t = 1: one year of ${up ? 'growth' : 'decay'} (${r}% of ${P} is ${ns(P * r / 100)}).`, `${P}(${fs})^1 = ${ns(v1)}`]],
+    spec: { type: 'expr', vars: ['t'], f: V => P * Math.pow(f, V.t) } };
+}
+function xp5Value() {
+  const up = chance(0.5), n = chance(0.7) ? 2 : 3;
+  const r = up ? pick(n === 2 ? [3, 4, 5, 6, 10, 20] : [5, 10, 20]) : pick(n === 2 ? [10, 15, 20, 25] : [10, 20]);
+  const P = up ? pick([800, 1000, 1200, 2000, 2500, 4000]) : pick([12000, 16000, 20000, 24000, 30000]), f = up ? 1 + r / 100 : 1 - r / 100;
+  const ctx = up ? pick([`A savings account starts with $${P} and earns ${r}% interest each year, added at the end of the year.`, `Lena invests $${P}. It grows ${r}% each year.`])
+    : pick([`A car is bought for $${P}. Its value drops ${r}% each year.`, `A delivery van costs $${P}. It loses ${r}% of its value each year.`]);
+  const vals = [P]; for (let i = 0; i < n; i++) vals.push(vals[i] * f);
+  const ans = vals[n], M = moneyAll([ans, P * (1 + (up ? 1 : -1) * r * n / 100), P * f, up ? ans - P : P - ans, P * Math.pow(up ? 1 - r / 100 : 1 + r / 100, n)]);
+  const C = up ? [{ v: P * (1 + r * n / 100), why: `That adds ${r}% of the <b>starting</b> amount each year. Here the ${r}% is taken of the new, bigger amount each year, so multiply by ${ns(f)} each year.` },
+    { v: P * f, why: `That's only one year. Multiply by ${ns(f)} once for each of the ${n} years.` },
+    { v: ans - P, why: 'That’s only the interest earned. The question asks for the total amount.' }]
+    : [{ v: P * (1 - r * n / 100), why: `Taking off ${r * n}% at once is not the same as ${r}% ${n === 2 ? 'twice' : 'three times'}. Each year's ${r}% comes off the new, smaller value.` },
+      { v: P * f, why: `That's only one year. Multiply by ${ns(f)} once for each of the ${n} years.` },
+      { v: P - ans, why: 'That’s how much value it lost, not what it is worth now.' },
+      { v: P * Math.pow(1 + r / 100, n), why: `It loses value, so each year you keep ${100 - r}%: multiply by ${ns(f)}, not ${ns(1 + r / 100)}.` }];
+  C.forEach(c => { c.m = M(c.v); });
+  const steps = [[up ? `Growing ${r}% means you keep 100% and add ${r}%: multiply by ${ns(f)} each year.` : `Losing ${r}% means you keep ${100 - r}%: multiply by ${ns(f)} each year.`, null]];
+  for (let i = 0; i < n; i++) {
+    const w = vmulMaybe(vals[i], f);
+    steps.push([`Year ${i + 1}: multiply ${ns(vals[i])} × ${numStr(f)}${w ? ' the old-school way' : ''}.`, w || `${ns(vals[i])} * ${ns(f)} = ${ns(vals[i + 1])}`]);
+  }
+  if (!isInt(ans)) steps.push([decs(ans, 2) ? `Write it as money: ${ns(ans)} is ${M(ans)}.` : `Round to the nearest cent: ${ns(ans)} is about ${M(ans)}.`, null]);
+  steps.push([`Shortcut: \`${P}(${ns(f)})^${n}\` gives the same thing in one line on a calculator.`, null]);
+  const fb = numFb(r2(ans), v => v > 0 ? { m: M(v), why: `Multiply by ${ns(f)} once for each year.` } : null);
+  return { q: `${ctx} What will it be worth after ${n} years?`, big: [], choices: mc({ m: M(ans) }, uniqNum(C, ans), fb),
+    hint: `Multiply by ${ns(f)} once for each year: ${n} times. Don't just ${up ? 'add' : 'take off'} ${r * n}% all at once.`, steps,
+    spec: { type: 'num', fn: 'compound', p: { P, r, n, g: up ? 1 : -1 }, money: true } };
+}
+function xp5Rate() {
+  const up = chance(0.45), r = up ? pick([2, 3, 4, 6, 8, 15]) : pick([4, 6, 8, 12, 15, 20, 35]), f = up ? 1 + r / 100 : 1 - r / 100, fs = ns(f);
+  const S = up ? pick([2400, 3500, 4200, 8000]) : pick([9000, 16000, 18000, 26000]);
+  const q = up ? `The population of a town t years from now is modeled by \`P = ${S}(${fs})^t\`. By what percent does the population grow each year?`
+    : `The value, in dollars, of a car t years after it is bought is modeled by \`V = ${S}(${fs})^t\`. By what percent does the car's value drop each year?`;
+  const cands = [{ m: `${ns(f * 100)}%`, why: up ? `${fs} means each year it becomes ${ns(f * 100)}% of what it was. The <b>growth</b> is the part over 100%: ${r}%.` : `${fs} means it <b>keeps</b> ${ns(f * 100)}% each year. It loses the rest: 100% − ${ns(f * 100)}% = ${r}%.` },
+    { m: `${ns(r / 100)}%`, why: `${ns(r / 100)} is the change as a decimal. As a percent, move the decimal point two places right: ${r}%.` },
+    { m: `${fs}%`, why: `${fs} is the factor, not a percent. Change it to a percent first (${ns(f * 100)}%), then compare it with 100%.` }];
+  return { q, big: [], choices: mc({ m: `${r}%` }, cands, () => null),
+    hint: 'The number being raised to the t power is the factor. Compare it with 1 (100%): above 1 is growth, below 1 is decay.',
+    steps: [[`The factor is ${fs}. As a percent, that's ${ns(f * 100)}%.`, null],
+      [up ? `It's more than 100%, so it grows. Subtract 100% to see by how much.` : `It's less than 100%, so it shrinks. Subtract from 100% to see how much it loses.`, up ? `${ns(f * 100)} - 100 = ${r}` : `100 - ${ns(f * 100)} = ${r}`],
+      [`It ${up ? 'grows' : 'drops'} ${r}% each year.`, null]],
+    spec: { type: 'num', fn: 'rateFromFactor', p: { f } } };
+}
+const xp5 = () => { const r = Math.random(); return r < 0.4 ? xp5Model() : r < 0.75 ? xp5Value() : xp5Rate(); };
+
 const s1bX = () => chance(0.25) ? s1bAsk() : s1b();
 const ex2X = () => chance(0.3) ? ex2Greater() : ex2();
 const s3aX = () => chance(0.22) ? s3aPie() : s3a();
@@ -2482,6 +2742,7 @@ const ge2X = () => chance(0.25) ? ge2Box() : ge2();
 const SKILLS = {
   s1a: { name: 'Two-step equations', gen: s1aX },
   s1b: { name: 'Distribute & both sides', gen: s1bX },
+  s1e: { name: 'Inequalities', gen: s1e },
   s1c: { name: 'Solve for a letter', gen: s1c },
   s1d: { name: 'Systems: where lines meet', gen: s1d },
   s3a: { name: 'Percent of a number', gen: s3aX },
@@ -2493,6 +2754,7 @@ const SKILLS = {
   ex3: { name: 'Simplify & factor', gen: ex3 },
   ex5: { name: 'FOIL: multiply binomials', gen: ex5 },
   ex6: { name: 'Factor trinomials', gen: ex6 },
+  ex7: { name: 'Solve by factoring', gen: ex7 },
   ex4: { name: 'Equivalent or NOT', gen: ex4 },
   s2a: { name: 'Words into math', gen: s2a },
   s2b: { name: 'Write the equation', gen: s2b },
@@ -2510,6 +2772,7 @@ const SKILLS = {
   xp2: { name: 'Negative exponents', gen: xp2 },
   xp3: { name: 'Square roots: real or not', gen: xp3 },
   xp4: { name: 'Doubling & halving', gen: xp4 },
+  xp5: { name: 'Percent growth & decay', gen: xp5 },
   ge1: { name: 'Area & perimeter with x', gen: ge1 },
   ge2: { name: 'Volume in terms of a letter', gen: ge2X },
   ge3: { name: 'SOH CAH TOA', gen: ge3 },
@@ -2553,7 +2816,7 @@ function mathInner(s) {
   }
   return out;
 }
-const renderMath = s => `<span class="m">${mathInner(String(s))}</span>`;
+const renderMath = s => `<span class="m">${mathInner(String(s)).trim()}</span>`; // trim: a lone `<` in prose shouldn't leave a gap before the period
 function renderProse(s) { return String(s).split('`').map((seg, i) => i % 2 ? renderMath(seg) : seg).join(''); }
 
 const api = { SKILLS, generate, renderMath, renderProse, renderWork, workEqs, vmulInfo, vmul, numStr, ldivInfo, foilInfo, evalSimple, rootStr, ladderInfo, pctLadder, wholeLadder, hundredSteps, Fr, lin };
@@ -2587,7 +2850,7 @@ const CATS = {
   geo: { name: 'Geometry', of: 3 }
 };
 const MODS = [
-  { n: 1, title: 'Linear Equations & Systems', short: 'Equations', cat: 'alg', skills: ['s1a', 's1b', 's1c', 's1d'],
+  { n: 1, title: 'Equations, Inequalities & Systems', short: 'Equations', cat: 'alg', skills: ['s1a', 's1b', 's1e', 's1c', 's1d'],
     why: 'Solving an equation is the move behind almost every TSI math question, word problems included. Learn this first and everything after it gets easier.',
     moves: [
       { t: 'Undo in reverse order', rule: 'To get x alone, undo what was done to it, backward: undo adding or subtracting first, then undo multiplying or dividing.',
@@ -2600,6 +2863,11 @@ const MODS = [
       { t: 'Answer what they ask', rule: 'Reread the question before you pick. If it asks for `8x` or `x + 3`, you can often stop early, and the value of x itself is usually one of the wrong choices.',
         ex: [{ q: 'If `5x + 3 = 27 - 3x`, what is the value of `8x`?', steps: [['Add `3x` to both sides so the x-terms are together.', { t: 'bal', L: [[5, 'x'], [3, '']], R: [[27, ''], [-3, 'x']], op: [3, 'x'], keysR: ['c', 'x'] }], ['Subtract 3 from both sides.', { t: 'bal', L: [[8, 'x'], [3, '']], R: [[27, '']], op: [-3, ''] }], ['Stop here. The question asks for `8x`, and `8x = 24`. (x itself is 3, and 3 is almost certainly a wrong choice.)', null]] }],
         watch: 'Underline what the question asks for. “What is the value of 8x?” is not asking for x.' },
+      { t: 'Inequalities: watch for the flip', rule: 'Solve an inequality exactly like an equation, with one extra rule: when you multiply or divide both sides by a <b>negative</b> number, flip the sign (`<` becomes `>`). Adding and subtracting never flip it.',
+        ex: [{ q: 'Solve `3x - 4 < 11`.', steps: [['Add 4 to both sides, just like an equation.', { t: 'bal', L: [[3, 'x'], [-4, '']], R: [[11, '']], op: [4, ''], rel: '<' }], ['Divide both sides by 3. That’s positive, so the sign stays.', { t: 'bal', L: [[3, 'x']], R: [[15, '']], div: 3, rel: '<' }], ['Check a number below 5, like x = 0: `3(0) - 4` is `-4`, and `-4 < 11` is true ✓', null]] },
+          { q: 'Solve `5 - 2x ≥ 13`.', steps: [['Subtract 5 from both sides.', { t: 'bal', L: [[5, ''], [-2, 'x']], R: [[13, '']], op: [-5, ''], rel: '≥', keysL: ['c', 'x'] }], ['Divide both sides by −2. You divided by a <b>negative</b>, so flip the sign: `≥` becomes `≤`.', { t: 'bal', L: [[-2, 'x']], R: [[8, '']], div: -2, rel: '≥' }], ['Check x = −5, which should work: `5 - 2(-5)` is 15, and `15 ≥ 13` ✓. Check x = 0, which should fail: `5 ≥ 13` is false ✓', null]] },
+          { q: 'Entry to the fair costs $7, and each ride ticket costs $4. Ana has $25. What is the greatest number of ride tickets she can buy?', steps: [['The entry fee plus $4 per ticket has to be at most (≤) $25.', '7 + 4n ≤ 25'], ['Subtract 7 from both sides.', { t: 'bal', L: [[7, ''], [4, 'n']], R: [[25, '']], op: [-7, ''], rel: '≤', keysL: ['c', 'n'] }], ['Divide both sides by 4.', { t: 'bal', L: [[4, 'n']], R: [[18, '']], div: 4, rel: '≤', dec: true }], ['She can’t buy half a ticket. Round DOWN: 4 tickets. (5 would cost $27.)', '7 + 4 * 4 = 23']] }],
+        watch: 'Only a negative number you multiply or divide by flips the sign. `3x < -12` becomes `x < -4` with no flip, because you divide by a positive 3. And “at most” is `≤`, “at least” is `≥`.' },
       { t: 'Solve for a letter', rule: 'Solving a formula for one letter works the same way. Treat the other letters like numbers.',
         ex: [{ q: 'Solve `2x + 3y = 12` for `y`.', steps: [['Subtract `2x` from both sides.', { t: 'bal', L: [[2, 'x'], [3, 'y']], R: [[12, '']], op: [-2, 'x'] }], ['Divide <b>every</b> term by 3, including the 12.', { t: 'bal', L: [[3, 'y']], R: [[-2, 'x'], [12, '']], div: 3 }]] }],
         watch: 'Divide every term, including the 12. A common wrong answer leaves it as 12.' },
@@ -2610,7 +2878,7 @@ const MODS = [
         watch: 'How many solutions? Different slopes: exactly one. Same slope with different intercepts: none, because the lines are parallel. Same line: infinitely many.' }],
     tip: 'Plug in the choices. The right answer makes the equation true, so test each choice and cross out the ones that fail. For a system, the right point works in <b>both</b> equations.' },
 
-  { n: 2, title: 'Expressions: Build, Multiply, Factor', short: 'Expressions', cat: 'alg', skills: ['ex1', 'ex2', 'ex3', 'ex5', 'ex6', 'ex4'],
+  { n: 2, title: 'Expressions: Build, Multiply, Factor', short: 'Expressions', cat: 'alg', skills: ['ex1', 'ex2', 'ex3', 'ex5', 'ex6', 'ex7', 'ex4'],
     why: 'Four of College Board’s 20 sample questions are about expressions, and practice tests add FOIL and factoring on top. Most of these fall to one trick: plug in a number.',
     moves: [
       { t: 'Words into math', rule: '“More than” adds. “Times” and “twice” multiply. “Less than” subtracts <b>and flips the order</b>. Build the expression in the order things happen.', words: true,
@@ -2636,8 +2904,13 @@ const MODS = [
           { q: 'Factor `4x^2 + 8x - 60`.', steps: [['Every term shares a 4. Pull it out first.', '4x^2 + 8x - 60 = 4(x^2 + 2x - 15)'], ['Factor what’s left, just like the example above.', '4(x^2 + 2x - 15) = 4(x - 3)(x + 5)']] },
           { q: 'Which of these is a factor of `n^2 - 40n + 400`?', steps: [['Two numbers that multiply to 400 and add to −40. Both must be negative.', '(-20)(-20) = 400'], ['So it factors as', 'n^2 - 40n + 400 = (n - 20)(n - 20)'], ['`n - 20` is a factor.', null]] }],
         watch: 'Signs: if the last number is positive, both numbers have the same sign (the sign of the middle). If it’s negative, the signs are different. FOIL your answer back to check.' },
+      { t: 'Solve by factoring: set each factor = 0', rule: 'To solve an equation with `x^2`, get 0 on one side, factor, then set <b>each</b> factor equal to 0. A product can only be 0 if one of its factors is 0. Most of these have two answers.',
+        ex: [{ q: 'Solve `x^2 + 2x - 15 = 0`.', steps: [['Factor it, just like the example above.', 'x^2 + 2x - 15 = (x - 3)(x + 5)'], ['Now the equation says `(x - 3)(x + 5) = 0`. Set each factor equal to 0.', null], ['First factor: add 3 to both sides.', { t: 'bal', L: [[1, 'x'], [-3, '']], R: [[0, '']], op: [3, ''] }], ['Second factor: subtract 5 from both sides.', { t: 'bal', L: [[1, 'x'], [5, '']], R: [[0, '']], op: [-5, ''] }], ['The solutions are x = 3 and x = −5. Each one has the opposite sign of the number in its factor. Check x = −5:', '(-5)^2 + 2(-5) - 15 = 25 - 10 - 15 = 0']] },
+          { q: 'Solve `x^2 + x = 12`.', steps: [['It doesn’t equal 0 yet. Subtract 12 from both sides first.', { t: 'bal', L: [[1, 'x^2'], [1, 'x']], R: [[12, '']], op: [-12, ''] }], ['Two numbers that multiply to −12 and add to 1: 4 and −3.', 'x^2 + x - 12 = (x + 4)(x - 3)'], ['Set each factor equal to 0: `x + 4 = 0` gives x = −4, and `x - 3 = 0` gives x = 3.', null], ['Check x = 3 in the original:', '(3)^2 + 3 = 12']] },
+          { q: 'Solve `x^2 - 6x = 0`.', steps: [['Both terms have an x. Factor it out.', 'x^2 - 6x = x(x - 6)'], ['Set each factor equal to 0: the first factor gives x = 0, and `x - 6 = 0` gives x = 6.', { t: 'bal', L: [[1, 'x'], [-6, '']], R: [[0, '']], op: [6, ''] }], ['Don’t divide both sides by x. You would lose the answer x = 0.', null]] }],
+        watch: '`(x - 3)(x + 5) = 0` gives x = 3 and x = −5, not −3 and 5. And if the equation equals 12 instead of 0, move the 12 first: setting factors equal to 12 doesn’t work.' },
       { t: 'Equivalent or NOT? Plug in a number', rule: 'Plug the same number (like x = 2, never 0 or 1) into the original and into every choice. Choices that give the same value are equivalent. The one that doesn’t match is NOT.',
-        ex: [{ q: 'Which is NOT equivalent to `(3x - 12)(x + 4)`? A `3(x^2 - 8x + 16)` · B `3(x^2 - 16)` · C `3x^2 - 48` · D `3x(x + 4) - 12(x + 4)`', steps: [['Plug x = 2 into the original.', '(3(2) - 12)(2 + 4) = (-6)(6) = -36'], ['Choice A:', '3(2^2 - 8(2) + 16) = 3(4) = 12'], ['Choice B:', '3(2^2 - 16) = 3(-12) = -36'], ['Choice C:', '3(2)^2 - 48 = 12 - 48 = -36'], ['Choice D:', '3(2)(2 + 4) - 12(2 + 4) = 36 - 72 = -36'], ['Only A gives a different value, so A is NOT equivalent.', null]] }],
+        ex: [{ q: 'Which is NOT equivalent to `(2x + 10)(x - 5)`? A `2(x^2 - 25)` · B `2x^2 - 50` · C `2(x^2 - 10x + 25)` · D `2x(x - 5) + 10(x - 5)`', steps: [['Plug x = 2 into the original.', '(2(2) + 10)(2 - 5) = (14)(-3) = -42'], ['Choice A:', '2(2^2 - 25) = 2(-21) = -42'], ['Choice B:', '2(2)^2 - 50 = 8 - 50 = -42'], ['Choice C:', '2(2^2 - 10(2) + 25) = 2(9) = 18'], ['Choice D:', '2(2)(2 - 5) + 10(2 - 5) = -12 - 30 = -42'], ['Only C gives a different value, so C is NOT equivalent.', null]] }],
         watch: 'Don’t plug in 0 or 1. Too many wrong choices match by luck at those numbers.' }],
     tip: 'When the choices have x in them, plug in x = 2. It turns algebra into arithmetic, and it works for “equivalent,” “NOT equivalent,” FOIL and factoring questions.' },
 
@@ -2743,8 +3016,8 @@ const MODS = [
         watch: '5 is the output when x = 1, so it is not the y-intercept. The intercept is the output when x = 0.' }],
     tip: 'Check one point. Pick a point you can read exactly from the graph or table, plug it into each choice, and the wrong ones fail fast.' },
 
-  { n: 7, title: 'Exponents & Roots', short: 'Exponents', cat: 'alg', skills: ['xp1', 'xp2', 'xp3', 'xp4'],
-    why: 'Usually one or two questions. Learn four short rules, and you can check any answer by plugging in small numbers.',
+  { n: 7, title: 'Exponents, Roots & Growth', short: 'Exponents', cat: 'alg', skills: ['xp1', 'xp2', 'xp3', 'xp4', 'xp5'],
+    why: 'Usually one or two questions. Learn a few short rules, and you can check any answer by plugging in small numbers. Percent growth shows up in money and population questions too.',
     moves: [
       { t: 'Exponent rules', rule: 'Anything to the 0 power is 1. Multiplying: add the exponents. Dividing: subtract them. A power of a power: multiply them.',
         ex: [{ q: 'Simplify `x^2 * x^5`, `{x^6/x^2}` and `(x^3)^2`.', steps: [['Multiplying: add.', 'x^2 * x^5 = x^{2 + 5} = x^7'], ['Dividing: subtract.', '{x^6/x^2} = x^{6 - 2} = x^4'], ['Power of a power: multiply.', '(x^3)^2 = x^{3 * 2} = x^6']] },
@@ -2760,7 +3033,12 @@ const MODS = [
       { t: 'Doubling and halving', rule: 'Doubles every k years: start × `2^{t/k}`. Halves every k: start × `0.5^{t/k}`. Always check two times: t = 0 should give the start, and t = k should give double (or half).',
         ex: [{ q: 'A town has 300 bikes to share, and the number doubles every 5 years. Which expression gives the number after t years?', steps: [['Start × 2 to the (t over 5).', '300 * 2^{t/5}'], ['Check t = 0: you should get the start.', '300 * 2^0 = 300'], ['Check t = 5: you should get double.', '300 * 2^1 = 600']] },
           { q: 'A 400 mg dose halves every 6 hours. Write the amount after t hours.', steps: [['Start × 0.5 to the (t over 6).', '400 * 0.5^{t/6}'], ['Check t = 6: half of 400.', '400 * 0.5^1 = 200']] }],
-        watch: '`300 * 2^{5t}` passes the t = 0 check but fails at t = 5. Always do both checks.' }],
+        watch: '`300 * 2^{5t}` passes the t = 0 check but fails at t = 5. Always do both checks.' },
+      { t: 'Percent growth and decay', rule: 'Growing r% each year: you have 100% + r% after each year, so multiply by that as a decimal. 4% growth is × 1.04. Losing r% each year: you keep 100% − r%. 15% decay is × 0.85. After t years: start × factor to the t power.',
+        ex: [{ q: 'A $500 deposit earns 4% interest each year. Which expression gives its value after t years?', steps: [['Each year you keep 100% and add 4%: 104%, or 1.04.', '1 + 0.04 = 1.04'], ['Multiply by 1.04 once for every year, so t is the exponent.', '500(1.04)^t'], ['Check t = 1: one year of 4% interest on $500 is $20.', '500(1.04)^1 = 520']] },
+          { q: 'A $20,000 car loses 15% of its value each year. What is it worth after 2 years?', steps: [['It keeps 100% − 15% = 85% each year, so multiply by .85 each year.', null], ['Year 1: multiply 20000 × .85 the old-school way.', { t: 'vmul', a: 20000, b: 0.85 }], ['Year 2: multiply 17000 × .85.', { t: 'vmul', a: 17000, b: 0.85 }], ['It’s worth $14,450. Not $14,000: the second year’s 15% comes off the smaller value.', null]] },
+          { q: 'A phone’s value is `V = 800(0.75)^t`. By what percent does it lose value each year?', steps: [['The factor 0.75 means it keeps 75% each year.', null], ['It loses the rest.', '100 - 75 = 25'], ['It loses 25% each year. (Not 75%: that’s what it keeps.)', null]] }],
+        watch: 'A growth factor is more than 1 and a decay factor is less than 1. 6% growth is 1.06, not 0.06 and not 1.6. 12% decay is 0.88, not 0.12.' }],
     tip: 'Plug in small numbers. Pick x = 2 (and y = 3), work out the original, then work out each choice. The one that matches is right.' },
 
   { n: 8, title: 'Geometry & Trig', short: 'Geometry', cat: 'geo', skills: ['ge1', 'ge2', 'ge3', 'ge4'],
