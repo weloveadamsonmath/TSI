@@ -270,6 +270,33 @@ p { margin: 0 0 .75rem; }
 .results li { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: .5rem; align-items: center; padding: .6rem 0; border-bottom: 1px solid var(--line); }
 .results .rn { font-family: var(--f-display); font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
 .results .rk { font-weight: 800; }
+.report { margin: .5rem 0 1rem; }
+.report h2 { font-size: 1.25rem; margin: 1.25rem 0 .25rem; }
+.score-line { font-size: 1.15rem; margin: .25rem 0 .5rem; max-width: 42rem; }
+.last-h { font-size: 1.1rem; margin: 2rem 0 0; color: var(--ink-soft); }
+.need { list-style: none; padding: 0; margin: .75rem 0; display: grid; gap: .75rem; }
+.need > li { background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--sel-line); border-radius: 14px; padding: 1rem 1.1rem .85rem; }
+.need > li.r1 { border-left-color: var(--bad); }
+.need > li.r2 { border-left-color: var(--c-geo); }
+.need-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .85rem; align-items: start; }
+.need-rank { font-family: var(--f-display); font-weight: 800; font-size: 1.7rem; line-height: 1; min-width: 1.4rem; color: var(--ink-soft); }
+.need-tag { font-family: var(--f-display); font-weight: 700; font-size: .74rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 .15rem; }
+.need > li.r1 .need-tag { color: var(--bad); }
+.need h3 { margin: 0; font-size: 1.2rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .6rem; }
+.need-title { font-size: .92rem; font-weight: 400; color: var(--ink-soft); }
+.need-stat { margin: .3rem 0 0; color: var(--ink-soft); font-size: .95rem; }
+.need .chips { margin: .8rem 0 0; }
+.tabn { font-family: var(--f-display); font-weight: 800; margin-right: .05rem; }
+.tabn.c-alg { color: var(--c-alg); } .tabn.c-num { color: var(--c-num); } .tabn.c-data { color: var(--c-data); } .tabn.c-geo { color: var(--c-geo); }
+.qm { display: flex; gap: 4px; padding-top: .3rem; }
+.qm i { width: 14px; height: 14px; border-radius: 4px; background: var(--ok); }
+.qm i.no { background: var(--bad); }
+.qm i.hint { background: var(--ok-soft); box-shadow: inset 0 0 0 2px var(--ok); }
+.strong-line { margin: .75rem 0; color: var(--ink-soft); }
+.strong-tab { display: inline-block; white-space: nowrap; background: var(--surface); border: 1.5px solid var(--grid-strong); border-radius: 999px; padding: .15rem .6rem; margin: .15rem .2rem .15rem 0; font-weight: 700; color: var(--ink); }
+.qlist { margin-top: 1rem; }
+.qlist summary { cursor: pointer; font-weight: 700; padding: .4rem 0; }
+@media (max-width: 520px) { .need-top { grid-template-columns: auto minmax(0, 1fr); } .qm { grid-column: 2; } }
 .results li.ok .rk { color: var(--ok); }
 .results li.no .rk { color: var(--bad); }
 
@@ -3180,6 +3207,11 @@ function testBar() {
   return `<div class="testbar" role="img" aria-label="The 20 questions: 7 algebra, 6 numbers and percents, 4 data and probability, 3 geometry">${cells}</div>
     <ul class="legend">${Object.entries(CATS).map(([k, c]) => `<li><i class="c-${k}"></i><b>${c.of}</b> ${c.name}</li>`).join('')}</ul>`;
 }
+function mixNote() {
+  const L = lastMix(); if (!L) return '20 questions in the same mix as the real test. You get a ranked study plan at the end.';
+  const top = rankNeed(L.res).weak[0], right = L.res.filter(r => r.ok).length;
+  return `Last time: ${right} of ${L.res.length}.` + (top ? ` Study first: ${tabName(top.m)}.` : ' Every one right.');
+}
 function home() {
   const n = doneCount(ALL);
   let h = `<section class="hero">
@@ -3212,7 +3244,7 @@ function home() {
   for (const m of MODS) {
     h += `<li><span class="so-n c-${m.cat}">${m.n}</span><div class="ag-main"><button class="ag-title" data-act="go" data-go="${m.n}">${m.title}</button><span class="ag-note"><span class="cat c-${m.cat}">${CATS[m.cat].name}</span> ${m.skills.map(s => E.SKILLS[s].name).join(' · ')}</span></div>${squares(m.skills)}</li>`;
   }
-  h += `<li class="mixrow"><span class="so-n">★</span><div class="ag-main"><button class="ag-title" data-act="go" data-go="mix">Mixed review</button><span class="ag-note">20 questions in the same mix as the real test.</span></div><span></span></li></ol></section>
+  h += `<li class="mixrow"><span class="so-n">★</span><div class="ag-main"><button class="ag-title" data-act="go" data-go="mix">Mixed review</button><span class="ag-note">${mixNote()}</span></div><span></span></li></ol></section>
   <section class="block">
     <h2>Habits that save points</h2>
     <div class="habits">${HABITS.map(([t, d], i) => `<div class="habit"><span class="hn">${i + 1}</span><div><h3>${t}</h3><p>${Rp(d)}</p></div></div>`).join('')}</div>
@@ -3224,7 +3256,7 @@ function home() {
       <li>Project a module’s <b>Learn</b> tab and click <b>Next step</b> to walk through each example with the class.</li>
       <li>Students then open this same link on their own device and switch to <b>Practice</b>. Every problem is generated fresh, so neighbors get different numbers.</li>
       <li>Three correct in a row, without a hint, checks off a skill. A check mark appears on a module’s tab when all of its skills are checked off.</li>
-      <li>The <b>Mixed review</b> pulls 20 questions in the same proportions as the real test: 7 algebra, 6 numbers and percents, 4 data and probability, 3 geometry.</li>
+      <li>The <b>Mixed review</b> pulls 20 questions in the same proportions as the real test: 7 algebra, 6 numbers and percents, 4 data and probability, 3 geometry. At the end it ranks the modules by need (a miss counts 1, a right answer that needed a hint counts ½) and links each one to its lesson and practice. The last plan stays on the Mixed review page.</li>
       <li>Progress is saved only in each student’s own browser on that device. Nothing is sent to you or anyone else.</li>
       <li>To make everything larger on the projector, use the browser’s zoom: Ctrl and + on a Chromebook or PC.</li>
     </ul>
@@ -3342,14 +3374,58 @@ function startMix() {
   list = shuffle(list);
   S.mix = { list, i: 0, res: [], P: { p: E.generate(list[0]), sel: null, done: false, hint: false, steps: false } };
 }
+/* Rank the modules by need. A miss costs a point on the real test; a right answer that needed a hint
+   counts half, because it might not hold up without one. The mix asks each module about as many questions
+   as the real test does, so need is roughly the points that module would cost you. Ties go to the earlier
+   module, because later modules build on it. */
+function rankNeed(res) {
+  const by = {};
+  res.forEach((r, i) => { if (!E.SKILLS[r.sid]) return; const m = MOD_OF[r.sid]; (by[m.n] = by[m.n] || { m, qs: [] }).qs.push(Object.assign({ i }, r)); });
+  const rows = Object.values(by).map(g => {
+    const miss = g.qs.filter(q => !q.ok), shaky = g.qs.filter(q => q.ok && q.hint);
+    const need = miss.length + shaky.length / 2, skills = [...new Set(miss.concat(shaky).map(q => q.sid))];
+    return Object.assign(g, { miss: miss.length, shaky: shaky.length, need, skills });
+  });
+  const weak = rows.filter(g => g.need > 0).sort((a, b) => b.need - a.need || b.need / b.qs.length - a.need / a.qs.length || a.m.n - b.m.n);
+  return { weak, strong: rows.filter(g => g.need === 0).sort((a, b) => a.m.n - b.m.n) };
+}
+const tabName = m => `<span class="tabn c-${m.cat}">${m.n}</span> ${m.short}`;
+function report(res) {
+  const right = res.filter(r => r.ok).length, N = res.length, { weak, strong } = rankNeed(res);
+  const lead = right === N && !weak.length ? 'Every one right, with no hints. Take another set in a few days to keep it fresh.'
+    : right >= 17 ? 'Strong. Clean up the area below, then take another set.'
+    : right >= 13 ? 'Getting close. Study your top two areas, then take another set.'
+    : 'Start with your first area below. Read <b>Learn</b> before you practice, then come back for another set.';
+  let h = `<section class="report" aria-label="Study plan"><p class="score-line">You got <b>${right} of ${N}</b>. ${lead}</p>`;
+  if (weak.length) {
+    h += '<h2>What to study, most needed first</h2><ol class="need">';
+    weak.forEach((g, k) => {
+      const tag = k === 0 ? 'Study first' : k === 1 ? 'Study next' : 'Then';
+      const stat = (g.miss ? [`Missed ${g.miss} of ${g.qs.length}`].concat(g.shaky ? [`${g.shaky} right with a hint`] : []) : [`All ${g.qs.length} right, but ${g.shaky === g.qs.length ? (g.shaky === 2 ? 'both' : 'all') : g.shaky} needed a hint`]).concat([`about ${MIX_PLAN[g.m.n]} of the 20 test questions`]);
+      const marks = g.qs.map(q => `<i class="${q.ok ? (q.hint ? 'hint' : 'ok') : 'no'}" title="Question ${q.i + 1}: ${q.ok ? (q.hint ? 'right, with a hint' : 'right') : 'missed'}"></i>`).join('');
+      h += `<li class="r${Math.min(k + 1, 3)}"><div class="need-top"><span class="need-rank">${k + 1}</span><div><p class="need-tag">${tag}</p>
+        <h3>${tabName(g.m)}<span class="need-title">${g.m.title}</span></h3><p class="need-stat">${stat.join(' · ')}</p></div>
+        <span class="qm" role="img" aria-label="${g.qs.length - g.miss} right, ${g.miss} missed">${marks}</span></div>
+        <div class="chips"><button class="btn ghost sm" data-act="learn" data-n="${g.m.n}">Learn the moves</button>${g.skills.map(sid => `<button class="chip" data-act="drill" data-skill="${sid}">Practice: ${E.SKILLS[sid].name}</button>`).join('')}</div></li>`;
+    });
+    h += '</ol><p class="fine">Ranked by the points each area would cost you on the real test: a miss counts 1, and a right answer that needed a hint counts ½. Ties go to the earlier module, since later ones build on it.</p>';
+  }
+  if (strong.length) h += `<p class="strong-line"><b>Strong today:</b> ${strong.map(g => `<span class="strong-tab">${tabName(g.m)}</span>`).join(' ')}</p>`;
+  h += `<details class="qlist"><summary>See all ${N} questions</summary><ol class="results">${res.filter(r => E.SKILLS[r.sid]).map((r, i) => `<li class="${r.ok ? 'ok' : 'no'}"><span class="rn">${i + 1}</span><span>${tabName(MOD_OF[r.sid])} · ${E.SKILLS[r.sid].name}${r.ok && r.hint ? ' <span class="fine">(hint)</span>' : ''}</span><span class="rk">${r.ok ? '✓' : '✗'}</span></li>`).join('')}</ol></details>`;
+  return h + '</section>';
+}
+function lastMix() { const L = saved.mix; return L && Array.isArray(L.res) && L.res.length ? L : null; }
 function mixPage() {
   let h = '<header class="mod-head"><p class="eyebrow">Final practice</p><h1>Mixed review</h1>';
-  if (!S.mix) return h + `<p class="why">${MIX_N} problems in the same mix as the real test: 7 algebra, 6 numbers and percents, 4 data and probability, and 3 geometry. Each problem also counts toward your skill streaks.</p></header><div class="next-row start"><button class="btn primary" data-act="mix-start">Start the mixed review</button></div>`;
+  if (!S.mix) {
+    const L = lastMix();
+    h += `<p class="why">${MIX_N} problems in the same mix as the real test: 7 algebra, 6 numbers and percents, 4 data and probability, and 3 geometry. When you finish, you get a study plan that ranks what to work on first.</p></header><div class="next-row start"><button class="btn primary" data-act="mix-start">${L ? 'Start a new set' : 'Start the mixed review'}</button></div>`;
+    if (L) h += `<h2 class="last-h">Your last study plan${L.at ? `, ${new Date(L.at).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}` : ''}</h2>` + report(L.res);
+    return h;
+  }
   const X = S.mix;
   if (X.i >= X.list.length) {
-    const right = X.res.filter(r => r.ok).length, missed = [...new Set(X.res.filter(r => !r.ok).map(r => r.sid))];
-    h += `<p class="why">You got <b>${right} of ${X.list.length}</b>. ${missed.length ? 'Go back and practice the skills you missed.' : 'Every one right. Nice work.'}</p></header><ol class="results">${X.res.map((r, i) => `<li class="${r.ok ? 'ok' : 'no'}"><span class="rn">${i + 1}</span><span>${E.SKILLS[r.sid].name}</span><span class="rk">${r.ok ? '✓' : '✗'}</span></li>`).join('')}</ol>`;
-    if (missed.length) h += `<div class="chips">${missed.map(s => `<button class="chip" data-act="drill" data-skill="${s}">Practice: ${E.SKILLS[s].name}</button>`).join('')}</div>`;
+    h += '</header>' + report(X.res);
     return h + `<div class="next-row start"><button class="btn primary" data-act="mix-start">Try another set of ${MIX_N}</button></div>`;
   }
   h += `<p class="why">Question <b>${X.i + 1}</b> of ${X.list.length}</p></header>`;
@@ -3434,14 +3510,14 @@ function check() {
   if (ok) { st.r++; if (!P.hint) st.s++; P.steps = true; } else st.s = 0;
   if (st.s >= 3) st.d = true;
   save();
-  if (c.mix) S.mix.res.push({ sid: P.p.skill, ok });
+  if (c.mix) S.mix.res.push({ sid: P.p.skill, ok, hint: !!P.hint });
   if (st.d) renderTabs();
   if (c.mix) render(); else refreshCard();
   const fb = document.querySelector('.fb'); if (fb) fb.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 function next() {
   const c = current(); if (!c) return;
-  if (c.mix) { const X = S.mix; X.i++; if (X.i < X.list.length) X.P = { p: E.generate(X.list[X.i]), sel: null, done: false, hint: false, steps: false }; render(true); return; }
+  if (c.mix) { const X = S.mix; X.i++; if (X.i < X.list.length) X.P = { p: E.generate(X.list[X.i]), sel: null, done: false, hint: false, steps: false }; else { saved.mix = { at: Date.now(), res: X.res }; save(); } render(true); return; }
   newProblem(c.P, c.n); refreshCard();
   const card = document.getElementById('card'); if (card && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: 'start' });
 }
@@ -3451,6 +3527,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
   const a = b.dataset.act, c = current();
   if (a === 'go') return go(b.dataset.go);
+  if (a === 'learn') { const n = +b.dataset.n; S.tab[n] = 'learn'; go(String(n)); return; }
   if (a === 'tab') { S.tab[+S.view] = b.dataset.tab; render(true); return; }
   if (a === 'skill') { const n = +S.view; S.prac[n].src = b.dataset.skill; newProblem(S.prac[n], n); document.querySelectorAll('.chip[data-skill]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.skill === b.dataset.skill))); refreshCard(); return; }
   if (a === 'drill') { const sid = b.dataset.skill, n = MOD_OF[sid].n; S.tab[n] = 'practice'; S.prac[n] = { src: sid }; go(String(n)); return; }
@@ -3469,7 +3546,7 @@ document.addEventListener('click', e => {
   }
   if (a === 'reset') { S.arm = true; S.erased = false; render(); document.getElementById('reset').scrollIntoView({ block: 'center' }); return; }
   if (a === 'reset-no') { S.arm = false; render(); document.getElementById('reset').scrollIntoView({ block: 'center' }); return; }
-  if (a === 'reset-yes') { saved.st = {}; save(); S.arm = false; S.erased = true; S.prac = {}; S.mix = null; S.ex = {}; render(); document.getElementById('reset').scrollIntoView({ block: 'center' }); return; }
+  if (a === 'reset-yes') { saved.st = {}; delete saved.mix; save(); S.arm = false; S.erased = true; S.prac = {}; S.mix = null; S.ex = {}; render(); document.getElementById('reset').scrollIntoView({ block: 'center' }); return; }
 });
 document.addEventListener('input', e => {
   if (e.target.dataset.act !== 'shift') return;
